@@ -41,14 +41,16 @@ async def refresh_jwt(session: aiohttp.ClientSession, client_id: str,
 async def startup():
     access_token = await redis.get('access_token')
     refresh_token = await redis.get('refresh_token')
-    headers = {'Authorization': 'Bearer ' + access_token.decode()}
+
     async with aiohttp.ClientSession() as session:
         if not access_token:
             response = await authorization(session=session, client_id=settings.client_id,
                                            client_secret=settings.client_secret,
                                            auth_code=settings.auth_code, redirect_uri=settings.redirect_uri)
+            print(response)
             await redis.set('access_token', response['access_token'])
             await redis.set('refresh_token', response['refresh_token'])
+        headers = {'Authorization': 'Bearer ' + access_token.decode()}
         async with session.get(AMO_URL + '/api/v4/leads', headers=headers) as response:
             res = await response.json()
             try:
