@@ -1,4 +1,5 @@
-.env
+app/.env
 venv
 __pycache__
 .idea
+redis_data

@@ -6,9 +6,11 @@ import aioredis
 from core import Settings
 
 app = FastAPI()
-AMO_URL = "https://bbintegration.amocrm.ru"
+AMO_URL = "https://amoadminneshkolacom.amocrm.ru"
 settings = Settings()
 redis = aioredis.from_url("redis://localhost")
+keys_lst = ["utm_content", "utm_medium", "utm_campaign", "utm_source", "utm_term", "utm_referrer", "utm_campaign", "referer"]
+town_lst = ["Курск", "Новороссийск", "Королев", "Тула", "Тверь", "Астрахань", "Уфа", "Екатеринбург", "Новосибирск", "Владивосток"]
 
 
 async def authorization(session: aiohttp.ClientSession, client_id: str,
@@ -34,6 +36,7 @@ async def refresh_jwt(session: aiohttp.ClientSession, client_id: str,
         "redirect_uri": redirect_uri
     }
     async with session.post(AMO_URL + '/oauth2/access_token', json=req) as response:
+        print("refresh", await response.json())
         return await response.json()
 
 
@@ -41,18 +44,24 @@ async def refresh_jwt(session: aiohttp.ClientSession, client_id: str,
 async def startup():
     access_token = await redis.get('access_token')
     refresh_token = await redis.get('refresh_token')
+    print("token", access_token)
 
     async with aiohttp.ClientSession() as session:
         if not access_token:
             response = await authorization(session=session, client_id=settings.client_id,
                                            client_secret=settings.client_secret,
                                            auth_code=settings.auth_code, redirect_uri=settings.redirect_uri)
-            print(response)
+            print("response", response)
             await redis.set('access_token', response['access_token'])
             await redis.set('refresh_token', response['refresh_token'])
-        headers = {'Authorization': 'Bearer ' + access_token.decode()}
+        curr_access_token = await redis.get('access_token')
+        headers = {'Authorization': 'Bearer ' + curr_access_token.decode()}
+        print("headers", headers)
+        # async with session.get(AMO_URL + '/api/v4/leads/36637175', headers=headers) as response:
+        #     print("STATUS_ID:!!!!!!!!!!!!!!!", await response.json())
         async with session.get(AMO_URL + '/api/v4/leads', headers=headers) as response:
             res = await response.json()
+            print("res", res)
             try:
                 if res['title'] == 'Unauthorized':
                     new_tokens = await refresh_jwt(session=session, client_id=settings.client_id,
@@ -70,49 +79,97 @@ async def post_amo(request: Request):
     access_token = await redis.get('access_token')
     headers = {'Authorization': 'Bearer ' + access_token.decode()}
     body = await request.json()
-    del body['COOKIES']
-    async with aiohttp.ClientSession(headers=headers) as session:
-        req = {
-            {
-                "created_by": 0,
-                "_embedded": {
-                    "contacts": [
-                        {
-                            "name": body['name'],
+    keys_from_body = body.keys()
+    print(body)
 
+    if "test" in keys_from_body:
+        print("test")
+        return
+    try:
+        if body['COOKIES']:
+            del body['COOKIES']
+    except Exception as e:
+        print(e)
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for i in keys_lst:
+            if i not in keys_from_body:
+                body[i] = None
+        print(body)
+        if "town" not in keys_from_body:
+            body["town"] = body["Selectbox"]
+            body["phone"] = body["Phone"]
+
+        if body["town"] in town_lst:
+            req = [
+                {
+                    "name": "Нешкола барабанов",
+                    "pipeline_id": 5337868,
+                    "status_id":  47510455,
+                    "_embedded": {
+                        # "metadata": {
+                        #     "category": "forms",
+                        #     "form_page": "ne-shkola.com",
+                        #     "form_id": body["formid"],
+                        #     "form_name": body["formname"],
+                        # },
+                        "contacts": [
+                            {
+                                "name": body["name"],
+                                "custom_fields_values": [
+                                    {
+                                        "field_id": 33210,
+                                        "values": [
+                                            {
+                                                "enum_id": 77028,
+                                                "value": body["phone"]
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "field_id": 601145,
+                                        "values": [
+                                            {
+                                                "value": body["town"]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+
+                        ]
+                    },
+                    "custom_fields_values": [
+                        {
+                            "field_code": "UTM_SOURCE",
+                            "values": [
+                                {
+                                    "value": body['utm_source']
+                                }
+                            ]
+                        },
+                        {
+                            "field_code": "UTM_MEDIUM",
+                            "values": [
+                                {
+                                    "value": body['utm_medium']
+                                }
+                            ]
+                        },
+                        {
+                            "field_code": "UTM_CAMPAIGN",
+                            "values": [
+                                {
+                                    "value": body['utm_campaign']
+                                }
+                            ]
                         }
-                    ]
-                },
-                "custom_fields_values": [
-                    {
-                        "field_code": "UTM_SOURCE",
-                        "values": [
-                            {
-                                "value": body['utm_source']
-                            }
-                        ]
-                    },
-                    {
-                        "field_code": "UTM_MEDIUM",
-                        "values": [
-                            {
-                                "value": body['utm_medium']
-                            }
-                        ]
-                    },
-                    {
-                        "field_code": "UTM_CAMPAIGN",
-                        "values": [
-                            {
-                                "value": body['utm_campaign']
-                            }
-                        ]
-                    }
-                ]
-            }
-        }
-        async with session.post(AMO_URL + '/api/v4/leads', json=req) as response:
-            print(await response.json())
+                    ],
+                }
+            ]
+            # async with session.get(AMO_URL + '/api/v4/leads/36637175') as response:
+            #     print(await response.json())
+            async with session.post(AMO_URL + '/api/v4/leads/complex', json=req) as response:
+                print(await response.json())
 
 
 @app.get("/get_amo_objects")

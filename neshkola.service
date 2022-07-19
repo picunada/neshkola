@@ -1,0 +1,12 @@
+[Unit]
+Description=ne-shkola.ru
+After=network.target
+
+[Service]
+User=demo
+Group=www-data
+WorkingDirectory=/home/neshkola/
+ExecStart=/home/admin/neshkola/venv/bin/gunicorn -c gunicorn_conf.py app:app
+
+[Install]
+WantedBy=multi-user.target
